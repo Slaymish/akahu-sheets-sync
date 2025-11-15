@@ -9,18 +9,23 @@ from typing import Iterable, List, Optional
 
 @dataclass(frozen=True)
 class AmountCondition:
-    """Represents a numeric comparison constraint for a rule."""
+    """Represents a numeric constraint (comparison or exact matches)."""
 
-    operator_symbol: str
-    threshold: float
+    operator_symbol: Optional[str] = None
+    threshold: Optional[float] = None
+    accepted_values: tuple[float, ...] = ()
 
     def matches(self, amount: Optional[float]) -> bool:
         if amount is None:
             return False
-        comparator = _COMPARATORS.get(self.operator_symbol)
-        if not comparator:
-            return False
-        return comparator(amount, self.threshold)
+        if self.accepted_values:
+            return any(amount == value for value in self.accepted_values)
+        if self.operator_symbol and self.threshold is not None:
+            comparator = _COMPARATORS.get(self.operator_symbol)
+            if not comparator:
+                return False
+            return comparator(amount, self.threshold)
+        return False
 
 
 @dataclass(order=True)
@@ -123,8 +128,22 @@ def _parse_amount_condition(raw_value: object) -> AmountCondition | None:
     normalized = normalized.replace("dollars", "").replace("dollar", "")
     normalized = normalized.replace("nz$", "$")
     normalized = normalized.replace("nzd", "")
-    normalized = normalized.replace(" ", "")
-    match = re.search(r"(>=|<=|>|<|==|=)\$?(-?\d+(?:\.\d+)?)", normalized)
+    normalized = normalized.replace(",", "")
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+
+    # Handle exact numeric matches and simple OR combinations.
+    if "or" in normalized:
+        parts = [part.strip() for part in re.split(r"\bor\b", normalized) if part.strip()]
+        values = [_parse_numeric_literal(part) for part in parts]
+        if parts and all(value is not None for value in values):
+            return AmountCondition(accepted_values=tuple(value for value in values if value is not None))
+
+    literal_value = _parse_numeric_literal(normalized)
+    if literal_value is not None:
+        return AmountCondition(accepted_values=(literal_value,))
+
+    condensed = normalized.replace(" ", "")
+    match = re.search(r"(>=|<=|>|<|==|=)\$?(-?\d+(?:\.\d+)?)", condensed)
     if not match:
         return None
     operator_symbol = match.group(1)
@@ -137,3 +156,14 @@ def _parse_amount_condition(raw_value: object) -> AmountCondition | None:
     except ValueError:
         return None
     return AmountCondition(operator_symbol=operator_symbol, threshold=threshold)
+
+
+def _parse_numeric_literal(text: str) -> Optional[float]:
+    cleaned = text.replace(" ", "")
+    match = re.fullmatch(r"\$?(-?\d+(?:\.\d+)?)", cleaned)
+    if not match:
+        return None
+    try:
+        return float(match.group(1))
+    except ValueError:
+        return None

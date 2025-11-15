@@ -46,6 +46,42 @@ def test_categoriser_honours_amount_conditions():
     )
 
 
+def test_categoriser_supports_exact_amounts_and_or_conditions():
+    rules = [
+        {
+            "pattern": "coffee",
+            "category": "Work Coffee",
+            "amount_condition": "4.5",
+            "priority": 1,
+        },
+        {
+            "pattern": "coffee",
+            "category": "Free Coffee",
+            "amount_condition": "0 or $-0",
+            "priority": 5,
+        },
+        {
+            "pattern": "coffee",
+            "category": "Discount Coffee",
+            "amount_condition": "$-2 OR -4",
+            "priority": 10,
+        },
+    ]
+    categoriser = Categoriser(rules)
+    assert (
+        categoriser.categorise({"merchant_normalised": "Coffee", "amount": "4.50"})
+        == "Work Coffee"
+    )
+    assert (
+        categoriser.categorise({"merchant_normalised": "Coffee", "amount": "0"})
+        == "Free Coffee"
+    )
+    assert (
+        categoriser.categorise({"merchant_normalised": "Coffee", "amount": "-4"})
+        == "Discount Coffee"
+    )
+
+
 def test_categoriser_ignores_amount_condition_when_unparseable():
     rules = [
         {
