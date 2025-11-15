@@ -9,6 +9,7 @@ This checklist tracks what the sync service already delivers and which enhanceme
 - [x] Reconcile balances per account (optional) to flag drifts between Akahu data and the sheet ledger.
 - [x] Persist the full raw ledger in the `Transactions` tab so spreadsheet formulas stay authoritative.
 - [x] Load configuration, credentials, and sync state from local JSON/environment settings for reproducible runs.
+- [x] Add a `--dry-run` CLI flag that prints the planned sheet mutations without applying them.
 
 ## Upcoming
 - [ ] Train or integrate an ML-based categorisation model using historical sheet data.
@@ -17,7 +18,6 @@ This checklist tracks what the sync service already delivers and which enhanceme
 - [ ] Provide a visual diff view (CLI or UI) that highlights modified transactions before updates are applied.
 - [ ] Detect and cluster recurring subscription expenses to surface potential savings opportunities.
 - [ ] Enrich reconciliation logging with per-account drift deltas and suggested corrective actions.
-- [ ] Add a `--dry-run` CLI flag that prints the planned sheet mutations without applying them.
 - [ ] Surface categorisation confidence scores alongside each transaction to aid manual reviews.
 - [ ] Export a summary CSV (per account + category totals) after each sync run for easy sharing.
 - [ ] Extend tests to cover edge cases such as negative transaction amounts and timezone rollovers.

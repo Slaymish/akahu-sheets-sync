@@ -1,12 +1,13 @@
 """Entrypoint for syncing Akahu transactions with Google Sheets."""
 from __future__ import annotations
 
+import argparse
 import json
 import logging
 import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, Iterable, List, Sequence
 
 from akahu_client import AkahuClient, AkahuTransaction
 from categoriser import Categoriser
@@ -23,7 +24,22 @@ def load_config(path: str | Path) -> Dict:
         return json.load(config_file)
 
 
-def main() -> None:
+def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print the planned Google Sheets mutations without applying them",
+    )
+    return parser.parse_args(argv)
+
+
+def main(argv: Sequence[str] | None = None) -> None:
+    args = parse_args(argv)
+    run_sync(dry_run=args.dry_run)
+
+
+def run_sync(dry_run: bool = False) -> None:
     config_path = Path(os.environ.get("SYNC_CONFIG", "config.json"))
     config = load_config(config_path)
     credentials_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
@@ -94,13 +110,17 @@ def main() -> None:
 
     rows_to_delete = [txn.row_index for txn in existing if txn.id and txn.id not in seen_ids]
 
-    if new_rows:
-        sheets_client.append_transactions(new_rows)
-    if updates:
-        for row_index, row in updates:
-            sheets_client.update_transaction(row_index, row)
-    if rows_to_delete:
-        sheets_client.delete_rows(rows_to_delete)
+    if dry_run:
+        for line in _format_mutation_summary(new_rows, updates, rows_to_delete):
+            LOGGER.info("Dry-run: %s", line)
+    else:
+        if new_rows:
+            sheets_client.append_transactions(new_rows)
+        if updates:
+            for row_index, row in updates:
+                sheets_client.update_transaction(row_index, row)
+        if rows_to_delete:
+            sheets_client.delete_rows(rows_to_delete)
 
     if config.get("perform_reconciliation", False):
         results = reconcile([txn.data for txn in existing])
@@ -116,8 +136,9 @@ def main() -> None:
                     result.difference,
                 )
 
-    state.last_synced_at = max(state.last_synced_at or start_timestamp, end_timestamp)
-    state.save(state_path)
+    if not dry_run:
+        state.last_synced_at = max(state.last_synced_at or start_timestamp, end_timestamp)
+        state.save(state_path)
 
 
 def _needs_update(existing: Dict[str, str], new_row: List[str]) -> bool:
@@ -125,6 +146,27 @@ def _needs_update(existing: Dict[str, str], new_row: List[str]) -> bool:
         if str(existing.get(header, "")) != value:
             return True
     return False
+
+
+def _format_mutation_summary(
+    new_rows: Sequence[Sequence[str]],
+    updates: Sequence[tuple[int, Sequence[str]]],
+    rows_to_delete: Iterable[int],
+) -> List[str]:
+    """Return human-friendly descriptions of planned sheet changes."""
+
+    rows_to_delete_list = list(rows_to_delete)
+    delete_count = len(rows_to_delete_list)
+    summary: List[str] = []
+    if new_rows:
+        summary.append(f"append {len(new_rows)} new row(s)")
+    if updates:
+        summary.append(f"update {len(updates)} existing row(s)")
+    if delete_count:
+        summary.append(f"delete {delete_count} orphaned row(s)")
+    if not summary:
+        summary.append("no sheet mutations are required")
+    return summary
 
 
 if __name__ == "__main__":
