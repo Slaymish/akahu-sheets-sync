@@ -7,6 +7,7 @@
   "transactions_tab": "Transactions",
   "category_map_tab": "CategoryMap",
   "perform_reconciliation": true,
+  "deletion_warning_threshold": 50,
   "ignore_rules": [
     {
       "pattern": "INTEREST ADJUSTMENT",
@@ -17,3 +18,4 @@
   "google_service_file": "bank-sync-service-account.json",
   "state_file": "data/sync_state.json"
 }
+

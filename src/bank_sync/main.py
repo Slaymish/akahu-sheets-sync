@@ -174,6 +174,20 @@ def run_sync(dry_run: bool = False, reset_state: bool = False) -> None:
 
     LOGGER.info("Processing complete: %d new, %d updates, %d deletions", len(new_rows), len(updates), len(rows_to_delete))
 
+    # Safety check: warn if deleting many transactions with few/no new ones
+    deletion_threshold = int(config.get("deletion_warning_threshold", 50))
+    if len(rows_to_delete) >= deletion_threshold and len(fetched_transactions) == 0:
+        LOGGER.error(
+            "SAFETY CHECK FAILED: About to delete %d transactions but fetched 0 new ones. "
+            "This likely indicates a bug. Aborting to prevent data loss. "
+            "Time window was: %s to %s",
+            len(rows_to_delete),
+            start_timestamp,
+            end_timestamp
+        )
+        LOGGER.error("If this is intentional, increase deletion_warning_threshold in config.json")
+        return
+
     if dry_run:
         for line in _format_mutation_summary(new_rows, updates, rows_to_delete):
             LOGGER.info("Dry-run: %s", line)

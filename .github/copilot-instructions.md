@@ -40,11 +40,17 @@ Columns: `id | date | account | amount | balance | description_raw | merchant_no
 - `is_transfer`: Auto-detected using keywords like "transfer", "internal", "bnz"
 
 ### `CategoryMap` Tab (Rules)
-Columns: `pattern | field | category | priority`
+Columns: `pattern | field | category | priority | amount_condition`
 
 - Rules are sorted by ascending `priority` (lower = higher precedence)
 - First match wins; unmatched → `"Uncategorised"`
 - `field` defaults to `merchant_normalised`, can also be `description_raw`
+- `amount_condition` supports flexible formats:
+  - Operators: `>20`, `<=50`, `>=100`
+  - Natural language: `greater than $50`, `at least 100`, `no more than 20`
+  - Exact values: `15`, `$42.50`
+  - Multiple values: `15 OR 20`, `$5 or $10`
+  - All comparisons use **absolute values** (negatives become positive)
 
 ### `Summary` Tab
 Never touched by script. Uses `SUMIFS` referencing `Transactions!` ranges.
@@ -83,16 +89,24 @@ Matched transactions are logged but **never written to sheet**.
 ## Developer Workflows
 
 ### Running Sync
-```bash
-# Ensure credentials are set
-export GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account-key.json
+Entry point is `run.py` (not `main.py` directly). It sets up the Python path before importing.
 
+```bash
 # Dry run (preview mutations without applying)
-python main.py --dry-run
+python run.py --dry-run
 
 # Live sync
-python main.py
+python run.py
+
+# Reset state and re-fetch from lookback window
+python run.py --reset-state
+
+# Upload category rules from CSV to sheet
+python run.py --upload-categories data/CategoryMap.csv
 ```
+
+**Credentials**: Script checks `GOOGLE_APPLICATION_CREDENTIALS` env var first, falls back to `google_service_file` in config.
+**Config override**: Set `SYNC_CONFIG` env var to use non-default config path.
 
 ### Testing
 Tests use **stub modules** (see `tests/conftest.py`) to avoid requiring `google-api-python-client` or `requests` at import time.
@@ -137,8 +151,17 @@ Rules are **pulled from sheet**, not code. To add logic-based categorization:
 ### Extending Ignore Rules
 Modify `IgnoreRule.matches()` in `ignore_rules.py`. Supports:
 - Regex matching on any `AkahuTransaction` field
-- Optional `min_amount` / `max_amount` bounds
+- Optional `min_amount` / `max_amount` bounds (raw amounts, not absolute)
 - Case-insensitive by default
+
+Config example:
+```json
+{
+  "pattern": "INTEREST ADJUSTMENT",
+  "field": "description_raw",
+  "max_amount": 1.00
+}
+```
 
 ## Common Pitfalls
 
