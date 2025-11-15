@@ -1,350 +1,202 @@
-# Pi Transaction Sync with Akahu and Google Sheets
+# Bank Transaction Sync
 
-## Overview
+Automated transaction syncing from BNZ to Google Sheets using Akahu's banking API. Built to run on a Raspberry Pi with minimal resource usage.
 
-This project is a lightweight service that runs on a Raspberry Pi (or any Linux machine) and keeps a Google Sheet up to date with your Bank of New Zealand (BNZ) transactions via the Akahu API.
+## What it does
 
-The goal is not budgeting automation but **accurate categorisation and reflection**: your Pi fetches transactions, applies your category-mapping rules, stores raw transactions in a Sheet, and your existing financial views in Google Sheets calculate monthly spending.
+This script pulls your settled bank transactions from Akahu (a NZ banking aggregator), automatically categorizes them using regex rules, and maintains an append-only ledger in Google Sheets. Think of it as the data pipeline that feeds your budgeting spreadsheets—it handles the boring stuff so your Sheet formulas can focus on the analysis.
 
-Key features:
+**Key features:**
+- Incremental sync (only fetches new transactions since last run)
+- Automatic categorization via configurable regex rules with amount conditions
+- Transfer detection (e.g., moving money between your own accounts)
+- Balance reconciliation to catch API drift
+- Deduplication using Akahu's stable transaction IDs
+- Batch API operations to avoid rate limits
 
-- Fully automated ingestion of *settled* transactions.
-- Robust deduplication using Akahu’s stable transaction IDs.
-- Optional reconciliation that verifies account balance equals sum of transactions.
-- Manual rule-based transaction categorisation, with future ML categorisation support.
-- Full raw ledger stored in Sheets so historical calculations remain transparent.
-
----
-
-## Architecture
-
-BNZ → Akahu → Raspberry Pi script → Google Sheets API → Your “Life Finances” Sheet
-
-The Pi script:
-
-1. Fetches new settled transactions from Akahu.
-2. Normalises fields (merchant name, description).
-3. Applies your category rules.
-4. Appends new rows into a `Transactions` tab.
-5. (Optional) Reconciles balances.
-6. Leaves all monthly calculations to your existing Sheet formulas.
-
-To avoid repeatedly re-scanning the same date range, the script now stores a `last_synced_at` timestamp locally (default `sync_state.json`). Each new run fetches only transactions newer than that mark (with a 1 ms overlap to respect Akahu’s exclusive `start` parameter) and updates the timestamp once the sync succeeds. On a brand new install the script falls back to the configurable `lookback_days` window.
-
----
-
-## Why only settled transactions?
-
-Akahu provides *pending* and *settled* transactions at different endpoints.
-
-Akahu explains that pending data is unstable and lacks identifiers:
-
-- Pending transactions are mutable and should be rebuilt on each fetch.
-- Settled transactions have stable Akahu IDs that remain consistent across updates【Akahu docs: Keeping transactions synchronised】.
-
-Since your system is designed for historical reflection, you use **only settled transactions**.
-
----
-
-## Google Sheets Structure
-
-### 1. `Transactions` (raw ledger, append-only)
-Columns:
-
-- `id` (Akahu’s stable transaction ID)
-- `date`
-- `account`
-- `amount`
-- `balance`
-- `description_raw`
-- `merchant_normalised`
-- `category`
-- `is_transfer`
-- `source` (e.g. akahu_bnz)
-- `imported_at`
-
-### 2. `CategoryMap`
-Columns:
-
-- `pattern` (substring to match)
-- `field` (merchant_normalised or description_raw)
-- `category`
-- `priority` (lower number = matched first)
-- `amount_condition` (optional comparison such as "> 10", "less than $5", an exact value like `$12.34`, or a list of exact values joined with `OR` like `5 or 7.5`)
-
-If `amount_condition` is provided, the rule only matches when the transaction amount satisfies the comparison. Supported symbols
-include `>`, `>=`, `<`, `<=`, and `=`; you can also use readable phrases like "greater than $10" or "less than 5". Comparisons use
-the signed amount recorded in the sheet (credits are positive, debits are negative), so you can differentiate between incoming
-and outgoing transactions. To target specific price points, enter a bare number like `15` (or `15 OR 20` to allow either value).
-Leave the cell blank to apply the rule regardless of the transaction value.
-
-### 3. `Summary` (your existing monthly view)
-Formulas reference the `Transactions` tab, e.g.:
-
-```gs
-=SUMIFS(
-  Transactions!$C:$C,
-  Transactions!$B:$B, ">=" & A1,
-  Transactions!$B:$B, "<" & A2,
-  Transactions!$G:$G, "Food: Groceries",
-  Transactions!$I:$I, FALSE
-)
-
-Your Pi script never touches Summary.
-
-⸻
-
-Deduplication Strategy
-
-Akahu states:
-	•	Banks do not provide stable transaction identifiers.
-	•	Akahu generates their own stable IDs based on transaction attributes.
-	•	IDs remain stable unless the bank mutates a transaction beyond recognition (<0.1% cases).
-
-You must therefore:
-	•	Treat Akahu’s id as authoritative.
-	•	Before inserting any transaction, check whether its id already exists in Transactions.
-
-When a rare mutation event occurs:
-	•	A new ID replaces the old one.
-	•	The old transaction should be removed.
-	•	The new transaction should be inserted.
-
-Your script handles this by:
-	1.	Building a set of known IDs from the Sheet at startup.
-	2.	Keeping a mapping of IDs → row numbers (optional optimisation).
-	3.	If an incoming transaction ID is present, update the row if fields changed.
-	4.	If an incoming ID is new, append it.
-	5.	If an ID disappears from Akahu’s results for a date range, delete it from the Sheet.
-
-⸻
-
-Reconciliation Strategy
-
-To safeguard against silent drift:
-	•	Each settled transaction includes a balance field representing the account balance after that transaction.
-	•	Periodically (e.g. once per day), collect the latest transaction for an account and compare:
-
-balance_from_bank == sum_of_all_transactions + opening_balance
-
-If mismatch is detected:
-	•	Log an alert.
-	•	Optionally trigger a full re-scan for the past N days.
-
-⸻
-
-Handling Date Ranges
-
-Akahu’s API:
-	•	Returns dates in UTC.
-	•	Accepts ISO 8601 start and end timestamps.
-	•	start is exclusive, end is inclusive【Akahu docs: Getting a date range】.
-
-For NZDT example:
-
-?start=2024-12-31T23:59:59.999+13:00
-&end=2025-01-01T23:59:59.999+13:00
-
-Your script should:
-	•	Maintain a last_imported_at timestamp.
-	•	Request new transactions with start=last_imported_at.
-
-Because start is exclusive, set:
-
-start = last_imported_at - 1ms
-
-This prevents missing edge cases.
-
-⸻
-
-Category Mapping
-
-Start simple with rules:
-
-{
-  "pattern": "COUNTDOWN",
-  "field": "merchant_normalised",
-  "category": "Food: Groceries",
-  "priority": 10
-}
-
-Process:
-	1.	Normalise text: uppercase, trim, collapse whitespace.
-	2.	Apply rules in ascending priority order.
-	3.	First match wins.
-	4.	If nothing matches: UNCATEGORISED.
-
-Later, plug in ML:
-	•	Train a classifier on your own labelled Transactions dataset.
-	•	Use ML only as fallback after explicit rules.
-
-⸻
-
-Ignore Rules
-
-For tiny adjustments or noise that you never want to see in the sheet, configure ignore rules in `config.json`:
+## How it works
 
 ```
-"ignore_rules": [
-  {
-    "pattern": "INTEREST ADJUSTMENT",
-    "field": "description_raw",
-    "max_amount": 1.00
-  }
-]
+BNZ Bank → Akahu API → Python Script → Google Sheets
 ```
 
-Each rule performs a case-insensitive regex match on the specified field (defaults to `description_raw`). Optional `min_amount`
-and `max_amount` bounds help you ignore only the small adjustments while leaving the large ones intact. Transactions matching any
-rule are skipped before categorisation or sheet updates, so they never clutter your ledger.
+The script maintains state in `sync_state.json` so it knows where it left off. Each run:
+1. Fetches new settled transactions from Akahu
+2. Filters out ignored transactions (tiny interest adjustments, etc.)
+3. Applies category rules from your `CategoryMap` sheet tab
+4. Detects transfers between your accounts
+5. Updates the `Transactions` tab (append new, update changed, delete removed)
+6. Optionally reconciles account balances
 
+All monthly summaries and calculations live in your Sheet formulas—the script just maintains the raw transaction ledger.
 
-⸻
+## Why settled transactions only?
 
-Script Flow
+Akahu has separate endpoints for pending and settled transactions. Pending data is mutable and lacks stable IDs, making it unsuitable for an append-only ledger. Settled transactions have permanent IDs that survive bank updates, so that's what we use.
 
-1. Load configuration
-	•	Akahu user token
-	•	Akahu app token
-	•	Google service account credentials
-	•	Mapping of accounts → Google Sheets tab
+## Google Sheets structure
 
-2. Load existing transaction IDs
+Your spreadsheet needs these tabs:
 
-Read the id column from the Transactions tab into a Python set.
+**`Transactions`** — The raw ledger (managed by the script)
+```
+id | date | account | amount | balance | description_raw | merchant_normalised | category | is_transfer | source | imported_at
+```
 
-3. Query Akahu
+**`CategoryMap`** — Your categorization rules (you edit this)
+```
+pattern | field | category | priority | amount_condition
+```
 
-Use:
+Rules are applied in priority order (lower number = higher priority). First match wins.
 
-GET https://api.akahu.io/v1/transactions?start=...&end=...
+- `pattern`: Regex to match (e.g., "COUNTDOWN")
+- `field`: Which field to check (`merchant_normalised` or `description_raw`)
+- `category`: The category to assign
+- `priority`: Numeric priority (1 = checked first)
+- `amount_condition`: Optional. Examples: `>20`, `<=50`, `15 OR 20`, `greater than $100`
 
-Headers:
+**`Monthly_Flow`** (or whatever you call your summary tab) — Your formulas
+```
+=SUMIFS(Transactions!D:D, Transactions!B:B, ">=2025-01-01", ...)
+```
 
-Authorization: Bearer {{user_token}}
-X-Akahu-Id: {{app_token}}
+The script never touches your summary tabs. All calculations happen in your Sheet formulas.
 
-Paginate until cursor.next is null.
+## Setup
 
-4. Filter settled transactions only
-
-Ignore pending endpoint entirely.
-
-5. Normalise + Categorise
-	•	Clean merchant name
-	•	Apply rules
-	•	Set is_transfer if both sides of transfer detected
-
-6. Deduplicate
-
-If ID in set:
-	•	Optionally update the row if modified (date/description/amount changes)
-	•	Skip otherwise
-
-If ID not in set:
-	•	Append new row
-
-7. Reconciliation (optional)
-
-Once per run:
-	•	Group transactions by account
-	•	Verify the ending balance matches Akahu’s reported balance
-	•	If drift detected, log & optionally rebuild N days
-
-⸻
-
-Directory Structure
-
-project-root/
-  ├── main.py
-  ├── akahu_client.py
-  ├── sheets_client.py
-  ├── categoriser.py
-  ├── reconciliation.py
-  ├── config.json
-  ├── requirements.txt
-  └── README.md
-
-
-⸻
-
-Installation
-
-1. Install Python dependencies
+### 1. Install dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
-2. Create Google service account
-        •       Enable Google Sheets API
-        •       Create service account keys
-        •       Share your spreadsheet with the service email
+### 2. Get Akahu credentials
 
-3. Store Akahu tokens in a secure file
+- Sign up at [my.akahu.nz](https://my.akahu.nz)
+- Create an app to get your `app_token`
+- Generate a `user_token` for your account
+- Connect your BNZ account
 
-### Configuration
+### 3. Set up Google Sheets API
 
-Create a `config.json` based on the template that ships with the repository:
+- Create a project in [Google Cloud Console](https://console.cloud.google.com)
+- Enable the Google Sheets API
+- Create a service account and download the JSON key file
+- Share your spreadsheet with the service account email
+
+### 4. Configure the script
+
+Create `config.json`:
 
 ```json
 {
-  "akahu_user_token": "user_token_here",
-  "akahu_app_token": "app_token_here",
-  "spreadsheet_id": "your_sheet_id_here",
-  "source": "akahu_bnz",
+  "akahu_user_token": "user_token_...",
+  "akahu_app_token": "app_token_...",
+  "google_service_file": "/path/to/service-account.json",
+  "spreadsheet_id": "your_spreadsheet_id",
   "lookback_days": 14,
-  "transactions_tab": "Transactions",
-  "category_map_tab": "CategoryMap",
-  "perform_reconciliation": true
+  "perform_reconciliation": true,
+  "ignore_rules": [
+    {
+      "pattern": "INTEREST ADJUSTMENT",
+      "field": "description_raw",
+      "max_amount": 1.00
+    }
+  ]
 }
 ```
 
-Export the `GOOGLE_APPLICATION_CREDENTIALS` environment variable so the script can load the service-account JSON file:
+### 5. Create your Sheet tabs
+
+Create tabs named `Transactions` and `CategoryMap` with the column headers shown above.
+
+## Usage
+
+**Manual run:**
+```bash
+python main.py
+```
+
+**Dry run (preview changes):**
+```bash
+python main.py --dry-run
+```
+
+**Reset sync state (re-fetch all transactions):**
+```bash
+python main.py --reset-state
+```
+
+**Upload category rules from CSV:**
+```bash
+python main.py --upload-categories CategoryMap.csv
+```
+
+**Scheduled sync (cron):**
+```bash
+# Run every hour
+0 * * * * cd /home/pi/bank-finances-sync && /home/pi/bank-finances-sync/venv/bin/python main.py >> sync.log 2>&1
+```
+
+## Project structure
+
+```
+.
+├── main.py                 # Main orchestration script
+├── akahu_client.py         # Akahu API wrapper
+├── sheets_client.py        # Google Sheets operations
+├── categoriser.py          # Rule-based categorization
+├── reconciliation.py       # Balance verification
+├── state_manager.py        # Sync state persistence
+├── ignore_rules.py         # Transaction filtering
+├── config.json             # Your credentials (gitignored)
+├── sync_state.json         # Last sync timestamp (auto-generated)
+└── tests/                  # Unit tests
+```
+
+## How deduplication works
+
+Akahu generates stable IDs for each transaction. The script:
+1. Reads all existing transaction IDs from the Sheet on startup
+2. Compares incoming transactions against this set
+3. Updates rows if transaction details changed
+4. Appends new transactions
+5. Deletes transactions that no longer appear in Akahu's response
+
+In rare cases (<0.1%), banks mutate a transaction so drastically that Akahu assigns a new ID. The script handles this automatically—the old ID gets deleted and the new one gets appended.
+
+## Reconciliation
+
+Each transaction from Akahu includes the account balance after that transaction. The script can optionally verify that the latest balance matches expectations:
+
+```
+latest_balance_from_bank ≈ sum_of_all_transactions_in_sheet
+```
+
+If drift exceeds $0.10, it logs a warning. This catches API bugs or missing transactions early.
+
+## Technical details
+
+- **Incremental sync:** Uses `sync_state.json` to track the last synced timestamp. Only fetches new transactions since then.
+- **Akahu quirk:** The `start` parameter is exclusive, so we subtract 1ms from the last sync time to avoid gaps.
+- **Batch operations:** Uses Google Sheets' `batchUpdate` API to avoid rate limits.
+- **Transfer detection:** Automatically marks transactions as transfers if they contain keywords like "transfer", "internal", or "BNZ to BNZ".
+- **Timezone aware:** All timestamps use UTC with proper timezone handling.
+
+## Testing
 
 ```bash
-export GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json
+python -m pytest tests/ -v
 ```
 
-### Project layout
+Tests use mock objects to avoid real API calls.
 
-```
-project-root/
-├── akahu_client.py        # REST wrapper around Akahu
-├── categoriser.py         # Applies CategoryMap rules
-├── reconciliation.py      # Balance reconciliation helpers
-├── sheets_client.py       # Google Sheets utilities
-├── main.py                # End-to-end sync orchestrator
-├── config.json            # Local configuration template
-└── requirements.txt
-```
+## Future improvements
 
-
-
-⸻
-
-Running
-
-Manual:
-
-```bash
-python3 main.py
-```
-
-Cron job (hourly):
-
-```
-0 * * * * /usr/bin/python3 /home/pi/project/main.py >> /home/pi/log.txt 2>&1
-```
-
-
-⸻
-
-Future Improvements
-	•	ML-based category model trained on your personalised data.
-	•	Add webhook support to make ingestion realtime.
-	•	Local SQLite cache to speed up dedup & reconciliation.
-	•	Visual diff viewer for modified transactions.
-	•	Add cluster detection for subscription expenses.
+- Train an ML model on historical transactions for smarter categorization
+- Add webhook support for real-time sync
+- Local SQLite cache for faster lookups
+- Visual diff viewer for modified transactions
 
 
