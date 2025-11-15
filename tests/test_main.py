@@ -1,4 +1,4 @@
-from main import _needs_update, load_config
+from main import _format_mutation_summary, _needs_update, load_config
 from sheets_client import TRANSACTION_HEADERS
 
 
@@ -15,3 +15,14 @@ def test_needs_update_detects_differences():
     assert _needs_update(existing, new_row) is False
     new_row[3] = "different"
     assert _needs_update(existing, new_row) is True
+
+
+def test_format_mutation_summary_reports_actions():
+    summary = _format_mutation_summary([["row"]], [(10, ["updated"])], [1, 2])
+    assert "append 1 new row(s)" in summary
+    assert "update 1 existing row(s)" in summary
+    assert "delete 2 orphaned row(s)" in summary
+
+
+def test_format_mutation_summary_handles_noops():
+    assert _format_mutation_summary([], [], []) == ["no sheet mutations are required"]
