@@ -292,10 +292,4 @@ Future Improvements
 	•	Visual diff viewer for modified transactions.
 	•	Add cluster detection for subscription expenses.
 
-⸻
 
-License
-
-MIT — do whatever you want, modify however you like.
-
-Let me know if you'd like a matching `main.py` scaffold or an initial Google Sheets schema file.l
