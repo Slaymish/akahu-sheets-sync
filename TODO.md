@@ -30,10 +30,10 @@ This checklist tracks what the sync service already delivers and which enhanceme
 
 ### Data model / UX
 
-- [ ] Add a simple “ignore rule” system to drop noisy transactions (for example, tiny interest adjustments) before they hit the sheet.
+- [x] Add a simple “ignore rule” system to drop noisy transactions (for example, tiny interest adjustments) before they hit the sheet.
 - [ ] Support manual override of categories in the `Transactions` tab without them being re-written by the script.
 - [ ] Add a self-check that warns if required sheet tabs or columns are missing or renamed.
-- [ ] Provide a visual diff view (CLI or UI) that highlights modified transactions before updates are applied.  
+- [ ] Provide a visual diff view (CLI or UI) that highlights modified transactions before updates are applied.
       (Nice to have, but after the reliability bits.)
 
 ### Smarter features

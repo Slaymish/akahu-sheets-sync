@@ -6,5 +6,12 @@
   "lookback_days": 14,
   "transactions_tab": "Transactions",
   "category_map_tab": "CategoryMap",
-  "perform_reconciliation": true
+  "perform_reconciliation": true,
+  "ignore_rules": [
+    {
+      "pattern": "INTEREST ADJUSTMENT",
+      "field": "description_raw",
+      "max_amount": 1
+    }
+  ]
 }
