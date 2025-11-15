@@ -47,6 +47,16 @@ class FakeSpreadsheetsResource:
     def values(self):
         return self._values
 
+    def get(self, spreadsheetId: str):
+        # Return mock metadata with sheet IDs
+        metadata = {
+            "sheets": [
+                {"properties": {"sheetId": 0, "title": "Transactions"}},
+                {"properties": {"sheetId": 1, "title": "CategoryMap"}},
+            ]
+        }
+        return FakeRequest(response=metadata)
+
     def batchUpdate(self, spreadsheetId: str, body: Dict):
         def record():
             self._service.batch_update_calls.append(body)

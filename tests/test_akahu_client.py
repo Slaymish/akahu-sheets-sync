@@ -43,7 +43,7 @@ def transaction_payload():
 
 
 def test_transaction_from_payload(transaction_payload):
-    txn = AkahuTransaction.from_payload(transaction_payload, source="akahu_bnz")
+    txn = AkahuTransaction.from_payload(transaction_payload, source="akahu_bnz", account_name="Cheque")
     assert txn.id == "txn_123"
     assert txn.account == "Cheque"
     assert txn.amount == pytest.approx(-12.34)
@@ -53,7 +53,7 @@ def test_transaction_from_payload(transaction_payload):
 
 
 def test_transaction_to_row_formats_numbers(transaction_payload):
-    txn = AkahuTransaction.from_payload(transaction_payload, source="akahu_bnz")
+    txn = AkahuTransaction.from_payload(transaction_payload, source="akahu_bnz", account_name="Cheque")
     row = txn.to_row(category="Groceries", is_transfer=False, imported_at=dt.datetime(2023, 9, 2, 10, 0))
     assert row[:4] == ["txn_123", "2023-09-02", "Cheque", "-12.34"]
     assert row[4] == "120.55"
@@ -62,17 +62,22 @@ def test_transaction_to_row_formats_numbers(transaction_payload):
 
 
 def test_fetch_settled_transactions_paginates(transaction_payload):
+    # Mock /accounts response first, then transaction pages
     responses = [
         {
             "items": [
-                {**transaction_payload, "status": "SETTLED"},
-                {**transaction_payload, "_id": "skip", "status": "PENDING"},
+                {"_id": "acc_1", "name": "Cheque"},
+            ],
+        },
+        {
+            "items": [
+                {**transaction_payload, "_account": "acc_1"},
             ],
             "cursor": {"next": "next-token"},
         },
         {
             "items": [
-                {**transaction_payload, "_id": "txn_456", "status": "SETTLED"},
+                {**transaction_payload, "_id": "txn_456", "_account": "acc_1"},
             ],
             "cursor": {},
         },
@@ -86,7 +91,7 @@ def test_fetch_settled_transactions_paginates(transaction_payload):
     fetched = list(client.fetch_settled_transactions(start_datetime=start, end_datetime=end))
 
     assert [txn.id for txn in fetched] == ["txn_123", "txn_456"]
-    assert len(session.request_calls) == 2
+    assert len(session.request_calls) == 3  # 1 for /accounts, 2 for transactions
     for _, _, headers, _, _ in session.request_calls:
         assert headers["Authorization"].startswith("Bearer ")
         assert headers["X-Akahu-Id"] == "app"
