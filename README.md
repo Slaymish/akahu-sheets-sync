@@ -173,6 +173,27 @@ Later, plug in ML:
 
 ⸻
 
+Ignore Rules
+
+For tiny adjustments or noise that you never want to see in the sheet, configure ignore rules in `config.json`:
+
+```
+"ignore_rules": [
+  {
+    "pattern": "INTEREST ADJUSTMENT",
+    "field": "description_raw",
+    "max_amount": 1.00
+  }
+]
+```
+
+Each rule performs a case-insensitive regex match on the specified field (defaults to `description_raw`). Optional `min_amount`
+and `max_amount` bounds help you ignore only the small adjustments while leaving the large ones intact. Transactions matching any
+rule are skipped before categorisation or sheet updates, so they never clutter your ledger.
+
+
+⸻
+
 Script Flow
 
 1. Load configuration

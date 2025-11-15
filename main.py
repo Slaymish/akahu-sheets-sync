@@ -14,6 +14,7 @@ from categoriser import Categoriser
 from reconciliation import reconcile
 from sheets_client import SheetsClient, TRANSACTION_HEADERS
 from state_manager import SyncState
+from ignore_rules import build_ignore_rules, should_ignore
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 LOGGER = logging.getLogger(__name__)
@@ -68,6 +69,7 @@ def run_sync(dry_run: bool = False) -> None:
 
     category_rules = sheets_client.fetch_category_rules()
     categoriser = Categoriser(category_rules)
+    ignore_rules = build_ignore_rules(config.get("ignore_rules"))
 
     akahu_client = AkahuClient(
         user_token=config["akahu_user_token"],
@@ -85,6 +87,9 @@ def run_sync(dry_run: bool = False) -> None:
     seen_ids = set()
 
     for transaction in fetched_transactions:
+        if should_ignore(transaction, ignore_rules):
+            LOGGER.info("Ignoring transaction %s (%s) due to ignore rules", transaction.id, transaction.description_raw)
+            continue
         seen_ids.add(transaction.id)
         transaction_dict = {
             "id": transaction.id,
