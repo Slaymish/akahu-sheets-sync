@@ -90,13 +90,14 @@ def test_fetch_transactions_pads_rows(patch_build):
 
 def test_fetch_category_rules_applies_defaults(patch_build):
     patch_build.get_responses = [
-        {"values": [["pattern", "", "", ""], ["", "desc", "Cat", "5"]]},
+        {"values": [["pattern", "", "", "", ""], ["", "desc", "Cat", "5", "<=10"]]},
     ]
     client = sc.SheetsClient(spreadsheet_id="sheet", credentials_path="creds.json")
     rules = client.fetch_category_rules()
     assert rules[0]["field"] == "merchant_normalised"
     assert rules[0]["category"] == "Uncategorised"
     assert rules[1]["priority"] == "5"
+    assert rules[1]["amount_condition"] == "<=10"
 
 
 def test_append_transactions_noop_on_empty(patch_build):

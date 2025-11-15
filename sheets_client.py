@@ -137,19 +137,20 @@ class SheetsClient:
             raise
 
     def fetch_category_rules(self) -> List[Dict[str, str]]:
-        range_name = f"{self._category_tab}!A2:D"
+        range_name = f"{self._category_tab}!A2:E"
         response = self._service.spreadsheets().values().get(
             spreadsheetId=self._spreadsheet_id, range=range_name
         ).execute()
         rules = []
         for row in response.get("values", []):
-            padded = row + [""] * (4 - len(row))
+            padded = row + [""] * (5 - len(row))
             rules.append(
                 {
                     "pattern": padded[0],
                     "field": padded[1] or "merchant_normalised",
                     "category": padded[2] or "Uncategorised",
                     "priority": padded[3] or "1000",
+                    "amount_condition": padded[4],
                 }
             )
         return rules

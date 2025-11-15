@@ -70,6 +70,13 @@ Columns:
 - `field` (merchant_normalised or description_raw)
 - `category`
 - `priority` (lower number = matched first)
+- `amount_condition` (optional comparison such as "> 10", "less than $5", an exact value like `$12.34`, or a list of exact values joined with `OR` like `5 or 7.5`)
+
+If `amount_condition` is provided, the rule only matches when the transaction amount satisfies the comparison. Supported symbols
+include `>`, `>=`, `<`, `<=`, and `=`; you can also use readable phrases like "greater than $10" or "less than 5". Comparisons use
+the signed amount recorded in the sheet (credits are positive, debits are negative), so you can differentiate between incoming
+and outgoing transactions. To target specific price points, enter a bare number like `15` (or `15 OR 20` to allow either value).
+Leave the cell blank to apply the rule regardless of the transaction value.
 
 ### 3. `Summary` (your existing monthly view)
 Formulas reference the `Transactions` tab, e.g.:
