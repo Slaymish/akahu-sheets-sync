@@ -242,6 +242,24 @@ def run_sync(dry_run: bool = False, reset_state: bool = False) -> None:
         if rows_to_delete:
             sheets_client.delete_rows(rows_to_delete)
 
+        # Update Dashboard with sync metadata
+        if config.get("update_dashboard", True):
+            dashboard_tab = config.get("dashboard_tab", "Dashboard")
+            # Find the most recent transaction date from all existing transactions
+            all_transactions = sheets_client.fetch_transactions()
+            most_recent_date = ""
+            if all_transactions:
+                # Sort by date and get the most recent
+                dates = [txn.data.get("date", "") for txn in all_transactions if txn.data.get("date")]
+                if dates:
+                    most_recent_date = max(dates)
+            
+            sheets_client.update_dashboard(
+                last_sync_time=imported_at.isoformat(),
+                most_recent_transaction_date=most_recent_date,
+                dashboard_tab=dashboard_tab
+            )
+
         # Re-fetch transactions after updates for accurate reconciliation
         if config.get("perform_reconciliation", False):
             updated_transactions = sheets_client.fetch_transactions()

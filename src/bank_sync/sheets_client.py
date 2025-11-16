@@ -196,3 +196,42 @@ class SheetsClient:
             body=body,
         ).execute()
         LOGGER.info("Uploaded %d rows to CategoryMap", len(rows))
+
+    def update_dashboard(self, *, last_sync_time: str, most_recent_transaction_date: str, dashboard_tab: str = "Dashboard") -> None:
+        """Update the Dashboard tab with sync metadata.
+        
+        Formats timestamps for Google Sheets to recognize as date/time values.
+        """
+        # Format for Google Sheets: "MM/DD/YYYY HH:MM:SS" or "YYYY-MM-DD HH:MM:SS"
+        # Google Sheets understands both formats when using USER_ENTERED
+        from datetime import datetime
+        
+        # Parse and format the sync time (ISO format) to a Sheets-friendly format
+        try:
+            sync_dt = datetime.fromisoformat(last_sync_time.replace('Z', '+00:00'))
+            formatted_sync_time = sync_dt.strftime("%Y-%m-%d %H:%M:%S")
+        except (ValueError, AttributeError):
+            formatted_sync_time = last_sync_time
+        
+        # Transaction date is just a date (YYYY-MM-DD), which Sheets already understands
+        formatted_transaction_date = most_recent_transaction_date
+        
+        data = [
+            {
+                "range": f"{dashboard_tab}!C40",
+                "values": [[formatted_sync_time]]
+            },
+            {
+                "range": f"{dashboard_tab}!C41",
+                "values": [[formatted_transaction_date]]
+            }
+        ]
+        
+        LOGGER.info("Updating Dashboard: last sync=%s, most recent transaction=%s", formatted_sync_time, formatted_transaction_date)
+        self._service.spreadsheets().values().batchUpdate(
+            spreadsheetId=self._spreadsheet_id,
+            body={
+                "valueInputOption": "USER_ENTERED",
+                "data": data
+            }
+        ).execute()
