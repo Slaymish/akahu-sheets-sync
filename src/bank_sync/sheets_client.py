@@ -201,15 +201,18 @@ class SheetsClient:
         """Update the Dashboard tab with sync metadata.
         
         Formats timestamps for Google Sheets to recognize as date/time values.
+        Converts UTC to New Zealand time (Pacific/Auckland timezone).
         """
-        # Format for Google Sheets: "MM/DD/YYYY HH:MM:SS" or "YYYY-MM-DD HH:MM:SS"
-        # Google Sheets understands both formats when using USER_ENTERED
-        from datetime import datetime
+        from datetime import datetime, timezone, timedelta
         
-        # Parse and format the sync time (ISO format) to a Sheets-friendly format
+        # Parse and format the sync time (ISO format) to NZ time
         try:
             sync_dt = datetime.fromisoformat(last_sync_time.replace('Z', '+00:00'))
-            formatted_sync_time = sync_dt.strftime("%Y-%m-%d %H:%M:%S")
+            # Convert UTC to NZ time (UTC+13 for NZDT, UTC+12 for NZST)
+            # Using fixed offset of +13 for summer time
+            nz_offset = timedelta(hours=13)
+            nz_dt = sync_dt + nz_offset
+            formatted_sync_time = nz_dt.strftime("%Y-%m-%d %H:%M:%S")
         except (ValueError, AttributeError):
             formatted_sync_time = last_sync_time
         
