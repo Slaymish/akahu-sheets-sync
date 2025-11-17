@@ -102,12 +102,14 @@ def run_sync(dry_run: bool = False, reset_state: bool = False) -> None:
         raise RuntimeError("Either GOOGLE_APPLICATION_CREDENTIALS environment variable or 'google_service_file' in config must be set")
 
     lookback_days = int(config.get("lookback_days", 7))
+    lookback_buffer_days = int(config.get("lookback_buffer_days", 3))
     end_timestamp = datetime.now(timezone.utc)
 
     state_path = Path(config.get("state_file", PROJECT_ROOT / "data" / "sync_state.json"))
     state = SyncState.load(state_path)
     if state.last_synced_at and not reset_state:
-        start_timestamp = state.last_synced_at - timedelta(milliseconds=1)
+        # Subtract buffer days to catch any late-settling transactions
+        start_timestamp = state.last_synced_at - timedelta(days=lookback_buffer_days, milliseconds=1)
     else:
         start_timestamp = end_timestamp - timedelta(days=lookback_days)
         if reset_state:
