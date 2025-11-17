@@ -203,7 +203,7 @@ class SheetsClient:
         Formats timestamps for Google Sheets to recognize as date/time values.
         Converts UTC to New Zealand time (Pacific/Auckland timezone).
         """
-        from datetime import datetime, timezone, timedelta
+        from datetime import datetime, timedelta
         
         # Parse and format the sync time (ISO format) to NZ time
         try:
